@@ -90,6 +90,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
+            cursor: move;
         }
         .task input[type="checkbox"] {
             margin-right: 10px;
@@ -234,7 +235,7 @@
                 document.getElementById('pinScreen').classList.add('hidden');
                 document.getElementById('userInterface').classList.remove('hidden');
                 document.getElementById('currentUserName').textContent = currentUser;
-                loadTasksFromStorage();
+                loadTasksFromLocalStorage();
             } else {
                 document.getElementById('pinError').classList.remove('hidden');
             }
@@ -246,89 +247,190 @@
         }
 
         function saveNewUser() {
-            const name = document.getElementById('newUserName').value;
-            const pin = document.getElementById('newUserPin').value;
+            const newUserName = document.getElementById('newUserName').value;
+            const newUserPin = document.getElementById('newUserPin').value;
             const users = JSON.parse(localStorage.getItem('users')) || [];
-            users.push({ name, pin });
+            users.push({ name: newUserName, pin: newUserPin });
             localStorage.setItem('users', JSON.stringify(users));
-            goBackToWelcome();
-            loadUsers(); // Reload users to show new user
+            document.getElementById('newUserScreen').classList.add('hidden');
+            document.getElementById('welcomeScreen').classList.remove('hidden');
+            loadUsers();
         }
 
         function goBackToWelcome() {
-            document.getElementById('pinScreen').classList.add('hidden');
             document.getElementById('userInterface').classList.add('hidden');
-            document.getElementById('newUserScreen').classList.add('hidden');
             document.getElementById('welcomeScreen').classList.remove('hidden');
-            document.getElementById('pinInput').value = '';
+        }
+
+        function goBackToUserInterface() {
+            document.getElementById('tasksScreen').classList.add('hidden');
+            document.getElementById('userInterface').classList.remove('hidden');
         }
 
         function showDayTasks(day) {
             document.getElementById('userInterface').classList.add('hidden');
             document.getElementById('tasksScreen').classList.remove('hidden');
             document.getElementById('dayTitle').textContent = day;
-            displayTasks(day);
+            loadTasks(day);
         }
 
-        function goBackToUserInterface() {
-            document.getElementById('tasksScreen').classList.add('hidden');
-            document.getElementById('userInterface').classList.remove('hidden');
-            document.getElementById('searchInput').value = '';
+        function loadTasks(day) {
+            const taskList = document.getElementById('tasksList');
+            taskList.innerHTML = '';
+            const dayTasks = tasks[day] || [];
+            dayTasks.forEach((task, index) => {
+                const taskElement = document.createElement('div');
+                taskElement.classList.add('task');
+                taskElement.setAttribute('draggable', true);
+                taskElement.setAttribute('data-index', index);
+                taskElement.innerHTML = `
+                    <input type="checkbox" ${task.completed ? 'checked' : ''} onchange="toggleTaskCompletion('${day}', ${index})">
+                    <span onclick="showSubTasks('${day}', ${index})">${task.title}</span>
+                    <div class="task-buttons">
+                        <span class="task-button" onclick="deleteTask('${day}', ${index})">🗑️</span>
+                        <span class="task-button" onclick="editTask('${day}', ${index})">✏️</span>
+                    </div>
+                `;
+                taskElement.addEventListener('dragstart', handleDragStart);
+                taskElement.addEventListener('dragover', handleDragOver);
+                taskElement.addEventListener('drop', handleDrop);
+                taskElement.addEventListener('dragend', handleDragEnd);
+                taskList.appendChild(taskElement);
+            });
+            updateProgressBar(dayTasks);
         }
 
         function createTask() {
             const day = document.getElementById('dayTitle').textContent;
-            const taskName = prompt('Enter task name:');
-            if (taskName) {
-                if (!tasks[day]) {
-                    tasks[day] = [];
-                }
-                tasks[day].push({ name: taskName, completed: false, subTasks: [] });
-                saveTasksToStorage();
-                displayTasks(day);
+            const taskTitle = prompt('Enter task title:');
+            if (taskTitle) {
+                tasks[day] = tasks[day] || [];
+                tasks[day].push({ title: taskTitle, completed: false, subTasks: [] });
+                saveTasksToLocalStorage();
+                loadTasks(day);
             }
-        }
-
-        function displayTasks(day) {
-            const tasksList = document.getElementById('tasksList');
-            tasksList.innerHTML = '';
-            if (tasks[day]) {
-                tasks[day].forEach((task, index) => {
-                    const taskElement = document.createElement('div');
-                    taskElement.className = 'task';
-                    taskElement.innerHTML = `
-                        <input type="checkbox" ${task.completed ? 'checked' : ''} onclick="toggleTaskComplete('${day}', ${index})">
-                        <span>${task.name}</span>
-                        <div class="task-buttons">
-                            <button class="task-button" onclick="showSubTasks('${day}', ${index})">View Sub-Tasks</button>
-                            <button class="task-button" onclick="deleteTask('${day}', ${index})">Delete</button>
-                        </div>
-                    `;
-                    tasksList.appendChild(taskElement);
-                });
-            }
-            updateProgressBar(day);
-        }
-
-        function toggleTaskComplete(day, index) {
-            tasks[day][index].completed = !tasks[day][index].completed;
-            saveTasksToStorage();
-            displayTasks(day);
         }
 
         function deleteTask(day, index) {
-            if (confirm('Are you sure you want to delete this task?')) {
-                tasks[day].splice(index, 1);
-                saveTasksToStorage();
-                displayTasks(day);
+            tasks[day].splice(index, 1);
+            saveTasksToLocalStorage();
+            loadTasks(day);
+        }
+
+        function editTask(day, index) {
+            const newTitle = prompt('Edit task title:', tasks[day][index].title);
+            if (newTitle) {
+                tasks[day][index].title = newTitle;
+                saveTasksToLocalStorage();
+                loadTasks(day);
             }
         }
 
-        function showSubTasks(day, taskIndex) {
+        function toggleTaskCompletion(day, index) {
+            tasks[day][index].completed = !tasks[day][index].completed;
+            saveTasksToLocalStorage();
+            loadTasks(day);
+        }
+
+        function updateProgressBar(dayTasks) {
+            const progressBar = document.getElementById('progressBarInner');
+            const completedTasks = dayTasks.filter(task => task.completed).length;
+            const totalTasks = dayTasks.length;
+            const progress = totalTasks === 0 ? 0 : (completedTasks / totalTasks) * 100;
+            progressBar.style.width = `${progress}%`;
+        }
+
+        function searchTasks() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const day = document.getElementById('dayTitle').textContent;
+            const filteredTasks = tasks[day].filter(task => task.title.toLowerCase().includes(searchTerm));
+            const taskList = document.getElementById('tasksList');
+            taskList.innerHTML = '';
+            filteredTasks.forEach((task, index) => {
+                const taskElement = document.createElement('div');
+                taskElement.classList.add('task');
+                taskElement.setAttribute('draggable', true);
+                taskElement.setAttribute('data-index', index);
+                taskElement.innerHTML = `
+                    <input type="checkbox" ${task.completed ? 'checked' : ''} onchange="toggleTaskCompletion('${day}', ${index})">
+                    <span onclick="showSubTasks('${day}', ${index})">${task.title}</span>
+                    <div class="task-buttons">
+                        <span class="task-button" onclick="deleteTask('${day}', ${index})">🗑️</span>
+                        <span class="task-button" onclick="editTask('${day}', ${index})">✏️</span>
+                    </div>
+                `;
+                taskElement.addEventListener('dragstart', handleDragStart);
+                taskElement.addEventListener('dragover', handleDragOver);
+                taskElement.addEventListener('drop', handleDrop);
+                taskElement.addEventListener('dragend', handleDragEnd);
+                taskList.appendChild(taskElement);
+            });
+            updateProgressBar(filteredTasks);
+        }
+
+        function showSubTasks(day, index) {
             document.getElementById('tasksScreen').classList.add('hidden');
             document.getElementById('subTasksScreen').classList.remove('hidden');
-            document.getElementById('taskTitle').textContent = tasks[day][taskIndex].name;
-            displaySubTasks(day, taskIndex);
+            document.getElementById('taskTitle').textContent = tasks[day][index].title;
+            loadSubTasks(day, index);
+        }
+
+        function loadSubTasks(day, index) {
+            const subTaskList = document.getElementById('subTasksList');
+            subTaskList.innerHTML = '';
+            const subTasks = tasks[day][index].subTasks || [];
+            subTasks.forEach((subTask, subIndex) => {
+                const subTaskElement = document.createElement('div');
+                subTaskElement.classList.add('task');
+                subTaskElement.setAttribute('draggable', true);
+                subTaskElement.setAttribute('data-index', subIndex);
+                subTaskElement.innerHTML = `
+                    <input type="checkbox" ${subTask.completed ? 'checked' : ''} onchange="toggleSubTaskCompletion('${day}', ${index}, ${subIndex})">
+                    <span>${subTask.title}</span>
+                    <div class="task-buttons">
+                        <span class="task-button" onclick="deleteSubTask('${day}', ${index}, ${subIndex})">🗑️</span>
+                        <span class="task-button" onclick="editSubTask('${day}', ${index}, ${subIndex})">✏️</span>
+                    </div>
+                `;
+                subTaskElement.addEventListener('dragstart', handleDragStart);
+                subTaskElement.addEventListener('dragover', handleDragOver);
+                subTaskElement.addEventListener('drop', handleDrop);
+                subTaskElement.addEventListener('dragend', handleDragEnd);
+                subTaskList.appendChild(subTaskElement);
+            });
+        }
+
+        function createSubTask() {
+            const day = document.getElementById('dayTitle').textContent;
+            const taskTitle = document.getElementById('taskTitle').textContent;
+            const taskIndex = tasks[day].findIndex(task => task.title === taskTitle);
+            const subTaskTitle = prompt('Enter sub-task title:');
+            if (subTaskTitle) {
+                tasks[day][taskIndex].subTasks.push({ title: subTaskTitle, completed: false });
+                saveTasksToLocalStorage();
+                loadSubTasks(day, taskIndex);
+            }
+        }
+
+        function deleteSubTask(day, index, subIndex) {
+            tasks[day][index].subTasks.splice(subIndex, 1);
+            saveTasksToLocalStorage();
+            loadSubTasks(day, index);
+        }
+
+        function editSubTask(day, index, subIndex) {
+            const newTitle = prompt('Edit sub-task title:', tasks[day][index].subTasks[subIndex].title);
+            if (newTitle) {
+                tasks[day][index].subTasks[subIndex].title = newTitle;
+                saveTasksToLocalStorage();
+                loadSubTasks(day, index);
+            }
+        }
+
+        function toggleSubTaskCompletion(day, index, subIndex) {
+            tasks[day][index].subTasks[subIndex].completed = !tasks[day][index].subTasks[subIndex].completed;
+            saveTasksToLocalStorage();
+            loadSubTasks(day, index);
         }
 
         function goBackToDayTasks() {
@@ -336,92 +438,41 @@
             document.getElementById('tasksScreen').classList.remove('hidden');
         }
 
-        function createSubTask() {
-            const day = document.getElementById('dayTitle').textContent;
-            const taskIndex = tasks[day].findIndex(task => task.name === document.getElementById('taskTitle').textContent);
-            const subTaskName = prompt('Enter sub-task name:');
-            if (subTaskName) {
-                tasks[day][taskIndex].subTasks.push({ name: subTaskName, completed: false });
-                saveTasksToStorage();
-                displaySubTasks(day, taskIndex);
-            }
-        }
-
-        function displaySubTasks(day, taskIndex) {
-            const subTasksList = document.getElementById('subTasksList');
-            subTasksList.innerHTML = '';
-            tasks[day][taskIndex].subTasks.forEach((subTask, index) => {
-                const subTaskElement = document.createElement('div');
-                subTaskElement.className = 'task';
-                subTaskElement.innerHTML = `
-                    <input type="checkbox" ${subTask.completed ? 'checked' : ''} onclick="toggleSubTaskComplete('${day}', ${taskIndex}, ${index})">
-                    <span>${subTask.name}</span>
-                    <div class="task-buttons">
-                        <button class="task-button" onclick="deleteSubTask('${day}', ${taskIndex}, ${index})">Delete</button>
-                    </div>
-                `;
-                subTasksList.appendChild(subTaskElement);
-            });
-        }
-
-        function toggleSubTaskComplete(day, taskIndex, subTaskIndex) {
-            tasks[day][taskIndex].subTasks[subTaskIndex].completed = !tasks[day][taskIndex].subTasks[subTaskIndex].completed;
-            saveTasksToStorage();
-            displaySubTasks(day, taskIndex);
-        }
-
-        function deleteSubTask(day, taskIndex, subTaskIndex) {
-            if (confirm('Are you sure you want to delete this sub-task?')) {
-                tasks[day][taskIndex].subTasks.splice(subTaskIndex, 1);
-                saveTasksToStorage();
-                displaySubTasks(day, taskIndex);
-            }
-        }
-
-        function saveTasksToStorage() {
+        function saveTasksToLocalStorage() {
             localStorage.setItem('tasks', JSON.stringify(tasks));
         }
 
-        function loadTasksFromStorage() {
-            const storedTasks = JSON.parse(localStorage.getItem('tasks'));
-            if (storedTasks) {
-                tasks = storedTasks;
-            }
+        function loadTasksFromLocalStorage() {
+            tasks = JSON.parse(localStorage.getItem('tasks')) || {};
         }
 
-        function searchTasks() {
-            const searchInput = document.getElementById('searchInput').value.toLowerCase();
+        function handleDragStart(e) {
+            e.dataTransfer.setData('text/plain', e.target.dataset.index);
+            e.dataTransfer.effectAllowed = 'move';
+            e.target.style.opacity = '0.4';
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const draggedIndex = e.dataTransfer.getData('text/plain');
+            const targetIndex = e.target.closest('.task').dataset.index;
             const day = document.getElementById('dayTitle').textContent;
-            const tasksList = document.getElementById('tasksList');
-            tasksList.innerHTML = '';
-            if (tasks[day]) {
-                tasks[day].filter(task => task.name.toLowerCase().includes(searchInput)).forEach((task, index) => {
-                    const taskElement = document.createElement('div');
-                    taskElement.className = 'task';
-                    taskElement.innerHTML = `
-                        <input type="checkbox" ${task.completed ? 'checked' : ''} onclick="toggleTaskComplete('${day}', ${index})">
-                        <span>${task.name}</span>
-                        <div class="task-buttons">
-                            <button class="task-button" onclick="showSubTasks('${day}', ${index})">View Sub-Tasks</button>
-                            <button class="task-button" onclick="deleteTask('${day}', ${index})">Delete</button>
-                        </div>
-                    `;
-                    tasksList.appendChild(taskElement);
-                });
+            if (draggedIndex !== targetIndex) {
+                const [draggedTask] = tasks[day].splice(draggedIndex, 1);
+                tasks[day].splice(targetIndex, 0, draggedTask);
+                saveTasksToLocalStorage();
+                loadTasks(day);
             }
-            updateProgressBar(day);
         }
 
-        function updateProgressBar(day) {
-            const progressBarInner = document.getElementById('progressBarInner');
-            if (tasks[day]) {
-                const totalTasks = tasks[day].length;
-                const completedTasks = tasks[day].filter(task => task.completed).length;
-                const progress = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
-                progressBarInner.style.width = `${progress}%`;
-            } else {
-                progressBarInner.style.width = '0%';
-            }
+        function handleDragEnd(e) {
+            e.target.style.opacity = '1';
         }
     </script>
 </body>
